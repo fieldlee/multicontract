@@ -9,8 +9,8 @@ contract MultiStorage{
     mapping (address => uint8) private _decimals;
     mapping (address => bool) private _initedTotalSupply;
     mapping (address => uint256) private _totalSupply;
-    mapping (address => mapping (address => uint256)) private _balanceOf;
-    mapping (address => mapping (address => mapping (address => uint256))) private _allowances;
+    mapping (address => AddrValueMap[]) private _balanceOf;
+    mapping (address => Allowance[]) private _allowances;
     // allownce access
     mapping(address => bool) private accessAllowed;
     
@@ -20,7 +20,7 @@ contract MultiStorage{
     }
     struct Allowance {
         address allownceAddr;
-        AddrValueMap allownceValue;
+        AddrValueMap[] allownceValues;
     }
 
     constructor()public{
@@ -91,7 +91,9 @@ contract MultiStorage{
         if (!_initedTotalSupply[_contractAddr]) {
             _totalSupply[_contractAddr] = total;
             _initedTotalSupply[_contractAddr] = true;
-            _balanceOf[_contractAddr][_contractAddr] = _totalSupply[_contractAddr];
+            // init blance obj
+            AddrValueMap memory totalObj = AddrValueMap({balanceAddr:_contractAddr,balanceValue:_totalSupply[_contractAddr]});
+            _balanceOf[_contractAddr].push(totalObj);
             return true;
         } else {
             return false;
@@ -103,22 +105,87 @@ contract MultiStorage{
     }
     // get balance of address
     function getBalanceOf(address _contractAddr,address _addr) public view returns (uint256){
-        return _balanceOf[_contractAddr][_addr];
+        for (uint index = 0; index < _balanceOf[_contractAddr].length; index++) {
+            if(_balanceOf[_contractAddr][index].balanceAddr == _addr){
+                return _balanceOf[_contractAddr][index].balanceValue;
+                break;
+            }
+        }
+        // return _balanceOf[_contractAddr].balanceValue;
     }
     // set Transfer value
     // 
     function setBalanceOf(address _contractAddr,address _addr, uint256 _value) public isPlatform  returns(bool) {
-        _balanceOf[_contractAddr][_addr] =  _value;
+        bool modified = false;
+        for (uint index = 0; index < _balanceOf[_contractAddr].length; index++) {
+            if(_balanceOf[_contractAddr][index].balanceAddr == _addr){
+                _balanceOf[_contractAddr][index].balanceValue = _value;
+                modified = true;
+                break;
+            }
+        }
+
+        if (modified == false) {
+            // init blance obj
+            AddrValueMap memory totalObj = AddrValueMap({balanceAddr:_addr,balanceValue:_value});
+            _balanceOf[_contractAddr].push(totalObj);
+        }
+
         return true;
     }
     // set _allowances
     function setAllowances(address _contractAddr,address _sender,address _spender, uint256 _value) public isPlatform returns(bool){
-        _allowances[_contractAddr][_sender][_spender] = _value;
+        bool modified = false;
+        bool hasAllownceAddr = false;
+        for (uint index = 0; index < _allowances[_contractAddr].length; index++) {
+            if (_allowances[_contractAddr][index].allownceAddr == _sender){
+                hasAllownceAddr = true;
+                AddrValueMap[] memory allowlist = _allowances[_contractAddr][index].allownceValues;
+                for (uint j = 0; j < allowlist.length; j++) {
+                    AddrValueMap memory addrValue = allowlist[j];
+                    if(addrValue.balanceAddr == _spender){
+                        _allowances[_contractAddr][index].allownceValues[j].balanceValue = _value;
+                        modified = true;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if (modified == false){
+            if(hasAllownceAddr == false){
+                Allowance memory allObj = Allowance({
+                    allownceAddr:_sender,
+                    allownceValues: new AddrValueMap[](0)});
+                _allowances[_contractAddr].push(allObj);
+            }
+
+            // AddrValueMap memory totalObj = AddrValueMap({balanceAddr:_contractAddr,balanceValue:_totalSupply[_contractAddr]});
+            AddrValueMap memory addrValueObj = AddrValueMap({balanceAddr:_spender,balanceValue:_value});
+            for (uint i = 0; i < _allowances[_contractAddr].length; i++) {
+                if(_allowances[_contractAddr][i].allownceAddr == _sender){
+                    _allowances[_contractAddr][i].allownceValues.push(addrValueObj);
+                    break;
+                }
+            }
+        }
+        // _allowances[_contractAddr][_sender][_spender] = _value;
         return true;
     }
     //  get allowance
     function getAllowances(address _contractAddr,address _owner, address _spender) public view returns (uint256){
-        return _allowances[_contractAddr][_owner][_spender];
+        for (uint index = 0; index < _allowances[_contractAddr].length; index++) {
+            if (_allowances[_contractAddr][index].allownceAddr == _owner){
+                AddrValueMap[] memory allowlist = _allowances[_contractAddr][index].allownceValues;
+                for (uint j = 0; j < allowlist.length; j++) {
+                    AddrValueMap memory addrValue = allowlist[j];
+                    if(addrValue.balanceAddr == _spender){
+                        return addrValue.balanceValue;
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     function kill(address _contractAddr) public isPlatform {
